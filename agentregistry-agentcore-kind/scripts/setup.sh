@@ -23,6 +23,7 @@ bash "$SCRIPT_DIR/01-cluster.sh"
 bash "$SCRIPT_DIR/02-keycloak.sh"
 bash "$SCRIPT_DIR/03-kagent.sh"
 bash "$SCRIPT_DIR/04-daemon.sh"
+bash "$SCRIPT_DIR/04b-register-runtime.sh"
 
 cat >&2 <<EOF
 

@@ -23,7 +23,9 @@ export AWS_REGION="${AWS_REGION:-us-east-1}"
 AGENTS="${RESET_AGENTS:-agentdemo summarizer}"
 DEPLOYMENTS="${RESET_DEPLOYMENTS:-agentdemo agentdemo-agentcore summarizer summarizer-agentcore}"
 AWS_RUNTIME_NAMES="${RESET_AWS_RUNTIMES:-agentdemo_agentcore summarizer_agentcore}"
-AR_RUNTIMES="${RESET_AR_RUNTIMES:-aws-agentcore kind-kagent}"
+# Keep kind-kagent — it's platform plumbing registered by setup.sh, not a demo
+# artifact. Only the AWS runtime is torn down on reset.
+AR_RUNTIMES="${RESET_AR_RUNTIMES:-aws-agentcore}"
 ECR_REPOS="${RESET_ECR_REPOS:-agentdemo summarizer}"
 STACK_NAME="${STACK_NAME:-AgentRegistryAccess}"
 

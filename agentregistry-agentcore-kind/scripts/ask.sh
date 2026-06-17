@@ -13,12 +13,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
 # The registry suffixes the kagent Agent with its tag + deployment name; resolve
-# the real name unless AGENT is set explicitly.
-AGENT="${AGENT:-$(resolve_kagent_agent summarizer)}"; AS_USER="${AS_USER:-alice}"
-[[ -n "$AGENT" ]] || die "no kagent Agent matching 'summarizer' found (is it deployed?)"
+# the real name unless AGENT is set explicitly. Defaults to the dice agentdemo.
+AGENT="${AGENT:-$(resolve_kagent_agent "${AGENT_PREFIX:-agentdemo}")}"; AS_USER="${AS_USER:-alice}"
+[[ -n "$AGENT" ]] || die "no kagent Agent matching '${AGENT_PREFIX:-agentdemo}' found (is it deployed?)"
 if [[ "$#" -gt 0 ]]; then PROMPT="$*"; elif [[ ! -t 0 ]]; then PROMPT="$(cat)"; fi
 if [[ -z "${PROMPT:-}" ]]; then
-  PROMPT="summarize this: AgentRegistry is an open catalog for AI agents, MCP servers, skills and prompts. The arctl CLI scaffolds a new artifact from a template, builds it into an OCI image, and publishes it to a registry so other people can discover and reuse it. The registry daemon exposes an API and a web UI on port 12121. A Kubernetes Runtime adapter translates a Deployment resource into kagent CRDs, which means a published agent can be hosted on Solo Enterprise for kagent with OIDC authentication enforced in front of it. Docs live at https://aregistry.ai and the source is at https://github.com/agentregistry-dev/agentregistry. The project is Apache 2 licensed."
+  PROMPT="Roll a 20-sided die and tell me whether the result is a prime number."
 fi
 PROMPT="$(printf '%s' "$PROMPT" | tr '\n' ' ' | sed 's/  */ /g')"
 
