@@ -67,6 +67,12 @@ export ARTIFACTS_DIR="${ARTIFACTS_DIR:-artifacts}"
 # Required: ANTHROPIC_API_KEY (agent model) + SOLO_LICENSE_KEY (Solo Enterprise
 # for kagent). KAGENT_ENT_LICENSE_KEY overrides if your kagent key is separate.
 load_secrets() {
+  # The gitignored .env.local written by setup-env.sh is the primary source.
+  # (It may itself set SECRETS_FILE, so source it first.)
+  local lab_root; lab_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  if [[ -f "$lab_root/.env.local" ]]; then
+    set -a; source "$lab_root/.env.local"; set +a
+  fi
   if [[ -n "${SECRETS_FILE:-}" ]]; then
     [[ -f "$SECRETS_FILE" ]] || die "SECRETS_FILE='$SECRETS_FILE' does not exist"
     set -a; source "$SECRETS_FILE"; set +a
