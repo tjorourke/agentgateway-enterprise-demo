@@ -30,6 +30,7 @@ sleep 1
 
 step "1/2  ${AS_USER}'s Keycloak token"
 kc -n "$KEYCLOAK_NS" port-forward svc/keycloak 18080:80 >/tmp/arctl-kc-pf.$$ 2>&1 & KPF=$!
+disown $KPF 2>/dev/null || true
 for _ in $(seq 1 30); do curl -s -o /dev/null "http://localhost:18080/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration" && break; sleep 1; done
 TOKEN="$(curl -s -X POST "http://localhost:18080/realms/${KEYCLOAK_REALM}/protocol/openid-connect/token" \
   -H 'Content-Type: application/x-www-form-urlencoded' \
@@ -41,6 +42,7 @@ log "claims:"; decode_jwt "$TOKEN" | sed 's/^/    /' >&2 || true
 
 step "2/2  Calling ${AGENT} through kagent A2A as ${AS_USER}"
 kc -n kagent port-forward svc/kagent-controller 8083:8083 >/tmp/arctl-a2a-pf.$$ 2>&1 & CPF=$!
+disown $CPF 2>/dev/null || true
 trap 'kill $CPF 2>/dev/null || true' EXIT
 for _ in $(seq 1 20); do curl -s -o /dev/null "http://localhost:8083/api/a2a/kagent/${AGENT}/.well-known/agent.json" && break; sleep 1; done
 RESP="$(curl -s -X POST "http://localhost:8083/api/a2a/kagent/${AGENT}/" \
