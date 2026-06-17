@@ -44,6 +44,9 @@ EOF
   prereqs)
     bash "$SCRIPT_DIR/00-prereqs.sh"
     ;;
+  setup-env)
+    bash "$SCRIPT_DIR/setup-env.sh"
+    ;;
   teardown)
     # AWS AgentCore bits first (no-ops cleanly with no live AWS session), then local.
     bash "$SCRIPT_DIR/cleanup.sh" agentcore
@@ -60,5 +63,5 @@ EOF
     step "keycloak"; kc -n "$KEYCLOAK_NS" get pods 2>/dev/null | sed 's/^/  /' >&2 || true
     step "kagent"; kc -n kagent get agent,pods 2>/dev/null | sed 's/^/  /' >&2 || true
     ;;
-  *) echo "Usage: $0 up | agentcore | status | teardown | prereqs" >&2; exit 2;;
+  *) echo "Usage: $0 setup-env | prereqs | up | agentcore | status | teardown" >&2; exit 2;;
 esac
