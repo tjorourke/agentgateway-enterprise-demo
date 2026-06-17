@@ -13,7 +13,10 @@ source "$SCRIPT_DIR/lib.sh"
 require aws; require docker; require jq; require arctl; require git
 cd "$LAB_ROOT"; arctl_token
 export AWS_REGION="${AWS_REGION:-us-east-1}"
-AGENT=agentdemo; PROJ="$LAB_ROOT/agentdemo"; STACK="${STACK_NAME:-AgentRegistryAccess}"
+# agentdemo/ is scaffolded next to demo.ipynb (one level above setup/), so it
+# stays visible in the Explorer.
+DEMO_ROOT="$(cd "$LAB_ROOT/.." && pwd)"
+AGENT=agentdemo; PROJ="$DEMO_ROOT/agentdemo"; STACK="${STACK_NAME:-AgentRegistryAccess}"
 
 step "Preflight"
 aws sts get-caller-identity >/dev/null 2>&1 || die "no AWS session — run: source scripts/aws-login.sh"
@@ -72,7 +75,7 @@ step "Pushing the agent image to ECR (linux/amd64)"
 ECR_HOST="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"; ECR_IMAGE="${ECR_HOST}/${AGENT}:0.0.1"
 aws ecr describe-repositories --repository-names "$AGENT" >/dev/null 2>&1 || aws ecr create-repository --repository-name "$AGENT" >/dev/null
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_HOST" >/dev/null
-arctl build "./$AGENT" --push --platform linux/amd64 --image "$ECR_IMAGE"; ok "pushed $ECR_IMAGE"
+arctl build "$PROJ" --push --platform linux/amd64 --image "$ECR_IMAGE"; ok "pushed $ECR_IMAGE"
 
 step "Pushing the agent source to git (AgentCore clones it)"
 SLUG="${AGENT_GIT_URL#https://github.com/}"; SLUG="${SLUG%.git}"; BR="${AGENT_GIT_BRANCH:-main}"

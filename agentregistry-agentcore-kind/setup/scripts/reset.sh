@@ -79,8 +79,10 @@ if kubectl --context "$CTX" get ns kagent >/dev/null 2>&1; then
 fi
 
 # ── 5. local scaffold + scratch ──────────────────────────────────────────────
+# agentdemo/ sits next to demo.ipynb (one level above setup/); .agentcore scratch
+# lives under setup/ (LAB_ROOT).
 step "Removing local scaffold + scratch"
-rm -rf "$LAB_ROOT/agentdemo" "$LAB_ROOT/.agentcore"
+rm -rf "$(cd "$LAB_ROOT/.." && pwd)/agentdemo" "$LAB_ROOT/.agentcore"
 ok "removed agentdemo/ and .agentcore/"
 
 step "Reset complete — platform still up; re-run the notebook from the top"
