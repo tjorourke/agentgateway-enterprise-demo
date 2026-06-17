@@ -1,7 +1,6 @@
 import os
 
 from google.adk import Agent
-from google.adk.models.lite_llm import LiteLlm
 
 from .mcp_tools import get_mcp_tools
 from .prompts_loader import build_instruction
@@ -16,8 +15,18 @@ maybe_set_otel_providers()
 
 
 def create_model():
-    """Use an Anthropic model via LiteLLM."""
-    return LiteLlm(model="anthropic/claude-haiku-4-5")
+    """Pick the model from MODEL_PROVIDER so the SAME agent runs on both runtimes:
+      - kagent                 -> anthropic via LiteLLM (uses ANTHROPIC_API_KEY)
+      - AWS Bedrock AgentCore  -> bedrock via the AWS role (no API key)
+    Imports are lazy so each path only pulls its own SDK: the AgentCore build
+    never imports google.adk.models.lite_llm (which needs the [extensions]
+    extra), and the kagent path never needs anthropic[bedrock]."""
+    provider = os.environ.get("MODEL_PROVIDER", "anthropic").lower()
+    if provider == "bedrock":
+        from .bedrock_model import BedrockClaude
+        return BedrockClaude(model=os.environ.get("MODEL_NAME", "us.anthropic.claude-haiku-4-5-20251001-v1:0"))
+    from google.adk.models.lite_llm import LiteLlm
+    return LiteLlm(model=os.environ.get("MODEL_NAME", "anthropic/claude-haiku-4-5"))
 
 
 # Base instruction: who the agent is, plus the baked-in summary-style skill that

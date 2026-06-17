@@ -146,8 +146,11 @@ metadata:
   name: ${AGENT_NAME}
 spec:
   description: Summarizes pasted text in the house format, using textkit MCP tools.
-  modelName: claude-haiku-4-5
-  modelProvider: anthropic
+  # On AgentCore the agent runs Bedrock-hosted Claude via the AWS role the
+  # runtime grants — no API key. agent.py switches to BedrockClaude when the
+  # Deployment sets MODEL_PROVIDER=bedrock (below).
+  modelName: us.anthropic.claude-haiku-4-5-20251001-v1:0
+  modelProvider: bedrock
   source:
     image: ${ECR_IMAGE}
     repository:
@@ -176,7 +179,10 @@ spec:
   runtimeConfig:
     region: ${AWS_REGION}
   env:
-    ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+    # Bedrock via the AWS role — no API key. MODEL_PROVIDER flips agent.py to
+    # its BedrockClaude model (vs anthropic+LiteLLM on kagent).
+    MODEL_PROVIDER: bedrock
+    AWS_REGION: ${AWS_REGION}
 EOF
 arctl apply -f "$DEPLOY_YAML"; rm -f "$DEPLOY_YAML"
 ok "deployment '${AGENT_NAME}-agentcore' applied — status streams below"

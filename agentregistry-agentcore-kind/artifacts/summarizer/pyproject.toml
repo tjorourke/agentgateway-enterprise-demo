@@ -4,12 +4,13 @@ version = "0.1"
 description = "summarizer agent"
 readme = "README.md"
 dependencies = [
-  # google-adk 1.25.1 bundles LiteLLM directly for the kagent-adk base image.
-  # AgentCore builds the agent from source in its own environment, where ADK
-  # splits LiteLLM into the [extensions] extra — so declare `litellm` directly
-  # too, or the AgentCore runtime fails to import the Anthropic model with
-  # "LiteLLM support requires: pip install google-adk[extensions]".
+  # google-adk 1.25.1 bundles LiteLLM directly, which the kagent path uses for
+  # the anthropic model. The AgentCore path uses a custom BedrockClaude adapter
+  # (summarizer/bedrock_model.py) over anthropic.AnthropicBedrock instead of
+  # LiteLLM — AgentCore's source build splits LiteLLM into the [extensions]
+  # extra it doesn't install, and LiteLLM's bedrock path also drops tool
+  # descriptions. agent.py picks the model from MODEL_PROVIDER.
   "google-adk==1.25.1",
-  "litellm",
+  "anthropic[bedrock]>=0.40",
 ]
 requires-python = ">=3.13"

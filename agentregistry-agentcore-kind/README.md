@@ -1,128 +1,140 @@
-# AgentRegistry: one agent, two runtimes
+# AgentRegistry: one agent, two runtimes — engineer runbook
 
-Drive the enterprise `arctl` CLI through the full agent lifecycle (scaffold, build, publish), then deploy a single published agent to **two** runtimes from the same catalog: **Solo Enterprise for kagent** in a local kind cluster, and **AWS Bedrock AgentCore**. The agent uses Anthropic Claude (`claude-haiku-4-5`) in both runtimes. The control plane is a local Docker `arctl daemon` that serves the catalog and a web UI on http://localhost:12121.
+A demo for a **developer** persona: drive the enterprise `arctl` CLI through the full agent lifecycle (scaffold → build → publish), then deploy **one** published agent to **two** runtimes from the same catalog — **Solo Enterprise for kagent** in a local kind cluster, and **AWS Bedrock AgentCore** — by changing one line, the Deployment's `runtimeRef`. On kagent the agent runs Anthropic Claude (`claude-haiku-4-5`); on AgentCore it runs native Bedrock Claude via the AWS role (no API key). The agent is a text summarizer wired to an MCP tool server (`textkit`: `word_count`, `extract_links`) and a skill (`summary-style`, the house format).
 
-The agent is a text summarizer. It is wired to an MCP server (`textkit`, which exposes `word_count` and `extract_links` tools) and a skill (`summary-style`, the house format for summaries), so a request like "summarize this..." calls the tools and applies the format.
+The work splits in two:
 
-## What you get
+- **Setup (you, the engineer — before the demo):** install tooling, capture credentials, bring up the platform. Scripted; never shown to the audience.
+- **The demo (the notebook `demo.ipynb`):** starts at the agent lifecycle and runs each `arctl` command live. This is what the audience watches.
 
-- A kind cluster (`agentcore-demo`) running Solo Enterprise for kagent, with Keycloak as the OIDC issuer the controller validates against
-- A standalone Docker `arctl daemon` acting as the catalog and control plane (catalog + UI on http://localhost:12121), using its embedded auto-auth IdP
-- Three artifacts built with `arctl` and published to the catalog: `acme/textkit` (MCPServer), `summary-style` (Skill), and `summarizer` (Agent)
-- The `summarizer` agent deployed onto a Kubernetes Runtime that lands it as kagent CRDs, reachable through the kagent A2A endpoint with OIDC enforced in front of it
-- An optional add-on that registers a BedrockAgentCore Runtime and deploys the same published agent to AWS
+---
 
-## Prerequisites
+## Part 1 — Setup (do this before the demo)
 
-Run the prereqs check, which installs missing CLIs on macOS (Homebrew) and validates credentials:
+### Step 0 — Prerequisites you provide
 
-```bash
-./scripts/quick.sh prereqs        # or: ./scripts/00-prereqs.sh
-./scripts/00-prereqs.sh --check   # validate only, never install (CI-style)
-```
+- **Docker** running (Desktop or engine with `buildx`).
+- An **Anthropic API key** and a **Solo Enterprise for kagent license**.
+- **gcloud** authenticated (`gcloud auth login`) — Solo's public Helm charts are pulled over OCI.
+- For the AgentCore add-on only: an **AWS account** with an SSO profile in `~/.aws/config`, and access to push this branch to a **public** git repo (AgentCore clones the agent source at deploy time).
 
-It checks for `docker`, `kind`, `kubectl`, `helm`, `jq`, `gh`, `uv`, `curl`, `openssl`, `envsubst`, plus `aws` (AgentCore) and `gcloud` (Solo's public Helm charts), and installs/pins the enterprise `arctl`.
+Everything else (kind, kubectl, helm, jq, gh, uv, aws CLI, and the enterprise `arctl`) is installed/validated for you in Step 2.
 
-`arctl` is the **enterprise** build pinned to **`v2026.5.4`**. This is the latest line that still ships the local `daemon` subcommand; `v2026.6.x` dropped it in favour of a cluster-hosted server. It is installed from `https://storage.googleapis.com/agentregistry-enterprise/install.sh`. After install, add it to your shell:
+### Step 1 — Capture credentials
 
 ```bash
-export PATH=$HOME/.arctl/bin:$PATH
+./scripts/setup-env.sh
 ```
 
-### Secrets
+Prompts for each value and writes a gitignored `.env.local` (chmod 600). Secrets are read hidden; existing values are kept on Enter. For AWS it shows a **numbered picker of your profiles** (from `aws configure list-profiles`) — pick a number, or `0`/blank to skip AgentCore.
 
-Two secrets are required:
+It captures:
 
-- `ANTHROPIC_API_KEY` — the agent model in both runtimes
-- `SOLO_LICENSE_KEY` — Solo Enterprise for kagent (set `KAGENT_ENT_LICENSE_KEY` instead if your kagent key is separate)
+| Variable | For | Notes |
+|----------|-----|-------|
+| `ANTHROPIC_API_KEY` | kagent path | the agent's model on kagent |
+| `SOLO_LICENSE_KEY` | kagent path | Solo Enterprise for kagent |
+| `AWS_PROFILE` | AgentCore add-on | your SSO profile; blank to skip |
+| `AWS_REGION` | AgentCore add-on | defaults to `us-east-1` |
 
-Pass them via environment, or point at a sourceable file:
+> Already keep Solo creds in an env file? Add `export SECRETS_FILE=/path/to/it` to `.env.local` — the scripts and notebook source it too.
+
+### Step 2 — Bring up the platform (~15 min, first run)
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-export SOLO_LICENSE_KEY=...
-# or:
-SECRETS_FILE=/path/to/secrets.sh ./scripts/quick.sh up
+./scripts/setup.sh
 ```
 
-The Solo public Helm charts (kagent enterprise) are pulled over OCI, so `gcloud` must be authenticated (`gcloud auth login`). The AgentCore add-on additionally needs a live AWS session.
+Installs/validates the CLIs (pins enterprise `arctl` to **v2026.5.4** — the latest line that still ships the local `daemon`; v2026.6.x moved the server onto a cluster), then stands up everything the agent runs on:
 
-## Quickstart
+1. **kind cluster** `agentcore-demo` + a local OCI registry on `localhost:5001` + Gateway API CRDs
+2. **Keycloak** with the `solo` realm (the OIDC issuer the kagent controller validates against)
+3. **Solo Enterprise for kagent** (Anthropic provider, OIDC wired to Keycloak)
+4. the **`arctl daemon`** — the catalog + control plane (web UI on http://localhost:12121), standalone with its embedded auth
 
-### 1. Bring up the local runtime
+Idempotent — re-run if a step fails. When it finishes, the platform is live and the demo is ready.
+
+### Step 3 — (AgentCore add-on only) make the agent source reachable
+
+AgentCore clones the agent source from git at deploy time, so push this branch somewhere AWS can reach (public):
 
 ```bash
-./scripts/quick.sh up
+git push <your-fork-remote> <this-branch>
 ```
 
-This runs the numbered steps end to end: create the kind cluster and a local OCI registry, deploy Keycloak and the `solo` realm, install Solo Enterprise for kagent (Anthropic as the default provider, OIDC wired to Keycloak), start the `arctl daemon`, scaffold-verify and build/publish the three artifacts, then register a Kubernetes Runtime and deploy the `summarizer` onto kagent.
+Then set these in `.env.local` so the notebook points AgentCore at it:
 
-The daemon starts standalone with `DOCKER_REPO=solo-public/agentregistry-enterprise` and `OIDC_AUTO_AUTH_ENABLED=true`, so no external Keycloak is needed for the catalog itself.
-
-### 2. Talk to the agent
-
-```bash
-./scripts/ask.sh "summarize this: <paste text with a couple of https:// links>"
+```sh
+export AGENT_GIT_URL="https://github.com/<you>/agentgateway-enterprise-demo.git"
+export AGENT_GIT_BRANCH="<this-branch>"
+export AGENT_GIT_SUBFOLDER="agentregistry-agentcore-kind/artifacts/summarizer"
 ```
 
-`ask.sh` mints `alice`'s Keycloak token (alice is in group `field-fte`, mapped to Admin so she may invoke agents) and calls the agent through the kagent A2A endpoint. Run with no prompt for a built-in sample. Open the kagent dashboard with:
+---
 
-```bash
-./scripts/port-forward.sh          # http://localhost:8080
-```
+## Part 2 — The demo (`demo.ipynb`)
 
-For a quick local proof before any cluster, `./scripts/test-local.sh` starts the `textkit` MCP on the host and drops you into an interactive chat with the agent via `arctl run`.
+Open `demo.ipynb` in a **bash-kernel** Jupyter ([`bash_kernel`](https://github.com/takluyver/bash_kernel)) and run top to bottom. It starts with a one-cell **Connect** (loads `.env.local`, mints the arctl token), then:
 
-### 3. (Optional) Add the AgentCore runtime
+1. **Scaffold** the MCP server, skill, and agent with `arctl init`
+2. **Prove locally** with `arctl run` (interactive; in a terminal)
+3. **Build + publish** the images to the catalog (`arctl build --push`, `arctl apply`)
+4. **Register** a Kubernetes **Runtime** pointing at the cluster
+5. **Deploy** the agent onto kagent (runtime #1)
+6. **Talk to it** through the OIDC-protected kagent A2A endpoint (`./scripts/ask.sh`)
 
-This deploys the **same** published agent to AWS Bedrock AgentCore, alongside the kagent deployment. AgentCore cannot pull from the local registry, so the agent image is pushed to ECR, and AgentCore clones the agent source from a git repo at deploy time, so the branch must be pushed and reachable by AWS.
+Then the AgentCore add-on (one-line `runtimeRef` change):
 
-```bash
-aws sso login --profile <your-profile>
-AWS_PROFILE=<your-profile> ./scripts/quick.sh agentcore
-```
+7. **Sign in to AWS** (also hands creds to the daemon so it can assume the cross-account role)
+8. **Grant access** — generate + deploy the CloudFormation cross-account role
+9. **Register** the `BedrockAgentCore` Runtime
+10. **Push** the image to ECR + re-publish the Agent as `modelProvider: bedrock`
+11. **Deploy** the same agent to AgentCore (runtime #2)
+12. **Test** it — invoke the AWS-hosted runtime and see the reply
 
-This generates the AgentRegistry cross-account access CloudFormation template, deploys the stack, registers a `BedrockAgentCore` Runtime, builds and pushes the agent image to ECR (`linux/amd64`), and applies a Deployment binding the agent to that runtime. Watch it reconcile with `arctl get deployments`, then send a JSON-RPC `message/send` payload from the Bedrock AgentCore console.
+You can also drive any step from the terminal — every notebook cell maps to a script under `scripts/`.
 
-### Guided walkthrough
-
-The `demo.ipynb` notebook in this folder walks the same flow cell by cell, which is the guided way to run the demo. Run it with a bash-kernel Jupyter.
+---
 
 ## Files
 
 ```
 .
-├── demo.ipynb              Guided, cell-by-cell walkthrough of the whole flow
+├── demo.ipynb              The demo — starts at the agent lifecycle (audience-facing)
+├── env.example             Template for .env.local
 ├── scripts/
-│   ├── quick.sh            Orchestrator: prereqs | up | agentcore | status | teardown
-│   ├── 00-prereqs.sh       Install/validate CLIs, pin enterprise arctl, check secrets
-│   ├── 01-cluster.sh       kind cluster + local OCI registry (:5001) + Gateway API CRDs
-│   ├── 02-keycloak.sh      Keycloak + the shared `solo` realm (alice/bob/carol)
-│   ├── 03-kagent.sh        Solo Enterprise for kagent (Anthropic provider, OIDC)
-│   ├── 04-daemon.sh        Start the standalone arctl daemon (catalog + UI on :12121)
-│   ├── 05-scaffold.sh      Verify the scaffolded artifact projects (shows the init commands)
-│   ├── 06-build-publish.sh Build/push the MCP + agent images, publish all three artifacts
-│   ├── 07-runtime-deploy.sh Register the Kubernetes Runtime, deploy the agent to kagent
-│   ├── 08-agentcore.sh     Add-on: register a BedrockAgentCore Runtime, deploy to AWS
-│   ├── ask.sh              Call the hosted agent through kagent A2A (mints a user token)
-│   ├── test-local.sh       Run the agent + MCP locally with `arctl run`, no cluster
+│   ├── setup-env.sh        Interactive .env.local (hidden secrets + AWS profile picker)
+│   ├── setup.sh            Engineer pre-demo: prereqs + kind + Keycloak + kagent + daemon
+│   ├── 00-prereqs.sh       Install/validate CLIs, pin enterprise arctl
+│   ├── 01-cluster.sh       kind cluster + local OCI registry + Gateway API
+│   ├── 02-keycloak.sh      Keycloak + the `solo` realm
+│   ├── 03-kagent.sh        Solo Enterprise for kagent (Anthropic, OIDC)
+│   ├── 04-daemon.sh        Start the standalone arctl daemon
+│   ├── 05-scaffold.sh      Verify the scaffolded artifact projects
+│   ├── 06-build-publish.sh Build/push images, publish all three artifacts
+│   ├── 07-runtime-deploy.sh Register the Kubernetes Runtime, deploy to kagent
+│   ├── 08-agentcore.sh     AgentCore add-on: CF role, BedrockAgentCore runtime, ECR, deploy
+│   ├── ask.sh              Call the hosted agent via kagent A2A (mints a user token)
+│   ├── test-local.sh       Run the agent + MCP locally with `arctl run`
 │   ├── port-forward.sh     kagent dashboard on http://localhost:8080
 │   ├── cleanup.sh          Tear down everything, or AWS bits only
-│   └── lib.sh              Shared helpers, version pins, and env defaults
+│   ├── quick.sh            Orchestrator: setup-env | setup | prereqs | up | agentcore | status | teardown
+│   └── lib.sh              Shared helpers, version pins, env defaults
 ├── artifacts/
 │   ├── textkit/            MCPServer: word_count + extract_links (FastMCP, Python)
-│   ├── summary-style/      Skill: the house format for summaries (SKILL.md)
-│   └── summarizer/         Agent: ADK + Anthropic, wired to textkit + summary-style
-├── yaml/                   Deployment, Runtime, and Keycloak manifests
+│   ├── summary-style/      Skill: the house format (SKILL.md)
+│   └── summarizer/         Agent: ADK; model from MODEL_PROVIDER (anthropic | bedrock)
+├── yaml/                   Deployment + Keycloak manifests
 └── kind/                   kind cluster config
 ```
+
+`quick.sh` is the one-shot alternative to the notebook: `./scripts/quick.sh up` runs the whole kagent path end to end; `./scripts/quick.sh agentcore` adds the AWS deployment.
 
 ## Teardown
 
 ```bash
-./scripts/cleanup.sh             # everything: AWS AgentCore bits, then kind cluster,
-                                 #   arctl daemon, registry container, and .agentcore/
-./scripts/cleanup.sh agentcore   # AWS only (leaves the local cluster running)
+./scripts/cleanup.sh agentcore   # AWS only (CloudFormation stack, runtime, ECR repo, deployment)
+./scripts/cleanup.sh             # everything: AWS bits, then kind cluster, daemon, registry
 ```
 
-`cleanup.sh` no-ops cleanly when there is no live AWS session, so the full teardown is safe even if you never deployed to AgentCore. `./scripts/quick.sh teardown` removes the local cluster, daemon, and registry only.
+`cleanup.sh` no-ops cleanly with no live AWS session, so the full teardown is safe even if you skipped AgentCore.
