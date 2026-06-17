@@ -1,0 +1,15 @@
+# Engineer-local credentials — never commit (see env.example)
+.env.local
+
+# AgentCore scratch (CloudFormation template, setup stderr)
+.agentcore/
+
+# arctl-init'd project local env + build cruft
+**/.env
+**/.venv/
+**/__pycache__/
+*.pyc
+
+# OS cruft
+.DS_Store
+.ipynb_checkpoints/
