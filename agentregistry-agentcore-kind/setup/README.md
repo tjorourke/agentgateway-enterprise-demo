@@ -20,16 +20,14 @@ Everything else (kind, kubectl, helm, jq, gh, uv, aws, `arctl`) is installed by 
 # 2. Bring up the platform: kind + Keycloak + kagent + arctl daemon (~15 min first run)
 ./setup/scripts/setup.sh
 
-# 3. Start the notebook's Jupyter server (so Cursor can run the Bash cells)
-./setup/scripts/notebook-server.sh
 ```
 
 Then open **`demo.ipynb`** and run it top to bottom.
 
-### Connecting the kernel in Cursor / VS Code
-Cursor's built-in Jupyter can't reliably launch a fresh Bash kernel, so connect to the server from step 3:
+### Kernel in Cursor / VS Code
+The notebook uses a **Python kernel** (Cursor launches these reliably; its raw Bash-kernel launch is broken). Each cell is a shell command run with `!` after a small Python "connect" cell sets up the environment.
 
-> Select Kernel → **Existing Jupyter Server…** → paste `http://127.0.0.1:8889/?token=solodemo` → pick **Bash**.
+> Select Kernel → **Jupyter Kernel… → AgentCore demo (Python 3.13)** (registered by setup). If it's not listed, run `./setup/scripts/notebook-kernel.sh` to (re)register it.
 
 ## AgentCore add-on
 To also deploy to AWS (the notebook's second half):

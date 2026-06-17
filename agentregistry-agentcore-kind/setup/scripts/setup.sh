@@ -24,6 +24,7 @@ bash "$SCRIPT_DIR/02-keycloak.sh"
 bash "$SCRIPT_DIR/03-kagent.sh"
 bash "$SCRIPT_DIR/04-daemon.sh"
 bash "$SCRIPT_DIR/04b-register-runtime.sh"
+bash "$SCRIPT_DIR/notebook-kernel.sh"   # register the Python kernel demo.ipynb uses
 
 cat >&2 <<EOF
 
