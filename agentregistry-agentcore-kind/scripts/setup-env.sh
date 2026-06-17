@@ -36,9 +36,27 @@ echo "Required for the local kagent path:"
 ask_secret ANTHROPIC_API_KEY "Anthropic API key (sk-ant-...)"
 ask_secret SOLO_LICENSE_KEY  "Solo Enterprise for kagent license key"
 echo
-echo "Only for the AWS Bedrock AgentCore add-on (leave blank to skip):"
-ask AWS_PROFILE "AWS CLI profile (SSO-backed)"
-ask AWS_REGION  "AWS region" "${AWS_REGION:-us-east-1}"
+echo "Only for the AWS Bedrock AgentCore add-on (choose 0 / leave blank to skip):"
+# Offer a numbered picker of the profiles in ~/.aws/config (aws configure
+# list-profiles), or let the user type a name. 0 = skip.
+profiles=()
+if command -v aws >/dev/null 2>&1; then
+  while IFS= read -r _p; do [ -n "$_p" ] && profiles+=("$_p"); done < <(aws configure list-profiles 2>/dev/null | sort)
+fi
+if [ "${#profiles[@]}" -gt 0 ]; then
+  echo "    [0] none / skip"
+  _i=1; for _p in "${profiles[@]}"; do echo "    [$_i] $_p"; _i=$((_i+1)); done
+  read -r -p "  AWS profile — pick a number or type a name${AWS_PROFILE:+ [$AWS_PROFILE]}: " _c
+  if   [ -z "$_c" ]; then :                                   # keep current
+  elif [ "$_c" = "0" ]; then AWS_PROFILE=""
+  elif printf '%s' "$_c" | grep -qE '^[0-9]+$' && [ "$_c" -le "${#profiles[@]}" ]; then
+       AWS_PROFILE="${profiles[$((_c-1))]}"
+  else AWS_PROFILE="$_c"; fi
+else
+  echo "  (no AWS profiles found via 'aws configure list-profiles')"
+  ask AWS_PROFILE "AWS CLI profile (SSO-backed)"
+fi
+ask AWS_REGION "AWS region" "${AWS_REGION:-us-east-1}"
 
 umask 077
 cat > "$ENVFILE" <<EOF
