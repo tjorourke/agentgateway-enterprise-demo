@@ -24,7 +24,10 @@ LAB_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
 require aws; require docker; require jq; require arctl
-require_secrets            # ANTHROPIC_API_KEY rides into the AgentCore container
+# Only the agent model key is needed here — no Solo/kagent license (AgentCore
+# doesn't touch the cluster). ANTHROPIC_API_KEY rides into the AgentCore container.
+load_secrets
+[[ -n "${ANTHROPIC_API_KEY:-}" ]] || die "ANTHROPIC_API_KEY required (export it, set it in .env.local, or point SECRETS_FILE at a file with it)"
 cd "$LAB_ROOT"
 arctl_token
 
@@ -50,6 +53,27 @@ ok "AWS account ${AWS_ACCOUNT_ID} / region ${AWS_REGION}"
 arctl get agent "$AGENT_NAME" >/dev/null 2>&1 \
   || die "agent '$AGENT_NAME' not in the catalog — run ./scripts/06-build-publish.sh first"
 ok "agent '$AGENT_NAME' is in the catalog"
+
+# The daemon container is what assumes the cross-account role to manage AgentCore,
+# so it needs AWS credentials. Its compose forwards AWS_* from the env at daemon
+# start — but step 04 started it before you logged in to AWS, so the vars are
+# empty. Resolve creds from the live session and restart the daemon so it picks
+# them up (the catalog persists in postgres across the restart).
+step "Giving the daemon AWS credentials"
+creds="$(aws configure export-credentials --format env 2>/dev/null)" \
+  || die "could not export AWS credentials from the current session"
+eval "$creds"; export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION
+DC="$(docker ps --filter publish=12121 --format '{{.Names}}' | head -1)"
+if [[ -z "$(docker exec "$DC" printenv AWS_ACCESS_KEY_ID 2>/dev/null)" ]]; then
+  arctl daemon stop >/dev/null 2>&1; arctl daemon start >/dev/null 2>&1 || die "daemon restart failed"
+  DC="$(docker ps --filter publish=12121 --format '{{.Names}}' | head -1)"
+  docker network connect kind "$DC" >/dev/null 2>&1 || true   # restart drops the kind-net join
+  end=$(( $(date +%s) + 60 )); until curl -sf "${ARCTL_API_BASE_URL}/" >/dev/null 2>&1; do [[ $(date +%s) -ge $end ]] && break; sleep 2; done
+  arctl_token
+  ok "daemon restarted with AWS credentials"
+else
+  ok "daemon already has AWS credentials"
+fi
 
 # ── 2. CloudFormation template + External ID ─────────────────────────────────
 step "Generating the AgentRegistry access CloudFormation template"
