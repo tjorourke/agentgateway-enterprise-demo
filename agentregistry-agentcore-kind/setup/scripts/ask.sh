@@ -22,6 +22,12 @@ if [[ -z "${PROMPT:-}" ]]; then
 fi
 PROMPT="$(printf '%s' "$PROMPT" | tr '\n' ' ' | sed 's/  */ /g')"
 
+# Clear stale port-forwards from a previous run — a lingering one collides on
+# :18080/:8083 and makes the call fail silently.
+pkill -f "port-forward.*18080:80" 2>/dev/null || true
+pkill -f "port-forward.*8083:8083" 2>/dev/null || true
+sleep 1
+
 step "1/2  ${AS_USER}'s Keycloak token"
 kc -n "$KEYCLOAK_NS" port-forward svc/keycloak 18080:80 >/tmp/arctl-kc-pf.$$ 2>&1 & KPF=$!
 for _ in $(seq 1 30); do curl -s -o /dev/null "http://localhost:18080/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration" && break; sleep 1; done
