@@ -1,72 +1,47 @@
 #!/usr/bin/env bash
-# ask.sh "<prompt>" — call the hosted summarizer agent through the kagent
-# controller's A2A endpoint and print its reply. The enterprise controller
-# validates an OIDC bearer, so we mint alice's Keycloak token first (alice is in
-# group field-fte -> Admin, so she may invoke agents). kagent serves every agent
-# as an A2A server at /api/a2a/<ns>/<name>/ (trailing slash matters).
+# ask.sh "<prompt>" — ask the hosted agent through kagent's OIDC-protected A2A
+# endpoint, as alice (group field-fte -> kagent Admin). The token mint + A2A call
+# run INSIDE the cluster via `kubectl exec`, hitting the in-cluster service DNS —
+# so there are no port-forwards or background jobs, and it behaves the same in a
+# terminal and in a notebook cell.
 #
-#   ./scripts/ask.sh "summarize this: <paste text with a couple of https:// links>"
-#   AS_USER=alice ./scripts/ask.sh "..."
-
+#   ./setup/scripts/ask.sh "Roll a 20-sided die and tell me if it is prime."
+#   AS_USER=bob ./setup/scripts/ask.sh "..."      # different Keycloak user
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
-# The registry suffixes the kagent Agent with its tag + deployment name; resolve
-# the real name unless AGENT is set explicitly. Defaults to the dice agentdemo.
-AGENT="${AGENT:-$(resolve_kagent_agent "${AGENT_PREFIX:-agentdemo}")}"; AS_USER="${AS_USER:-alice}"
-[[ -n "$AGENT" ]] || die "no kagent Agent matching '${AGENT_PREFIX:-agentdemo}' found (is it deployed?)"
-if [[ "$#" -gt 0 ]]; then PROMPT="$*"; elif [[ ! -t 0 ]]; then PROMPT="$(cat)"; fi
-if [[ -z "${PROMPT:-}" ]]; then
-  PROMPT="Roll a 20-sided die and tell me whether the result is a prime number."
-fi
-PROMPT="$(printf '%s' "$PROMPT" | tr '\n' ' ' | sed 's/  */ /g')"
+AGENT="${AGENT:-$(resolve_kagent_agent "${AGENT_PREFIX:-agentdemo}")}"
+AS_USER="${AS_USER:-alice}"
+[[ -n "$AGENT" ]] || die "no kagent Agent matching '${AGENT_PREFIX:-agentdemo}' — is it deployed?"
+PROMPT="${*:-Roll a 20-sided die and tell me whether the result is a prime number.}"
 
-# Clear stale port-forwards from a previous run — a lingering one collides on
-# :18080/:8083 and makes the call fail silently.
-pkill -f "port-forward.*18080:80" 2>/dev/null || true
-pkill -f "port-forward.*8083:8083" 2>/dev/null || true
-sleep 1
+POD="$(kc -n kagent get pods -l "app.kubernetes.io/name=$AGENT" -o name 2>/dev/null | head -1)"
+[[ -n "$POD" ]] || die "no running pod for agent '$AGENT' — check: kubectl -n kagent get pods"
 
-step "1/2  ${AS_USER}'s Keycloak token"
-kc -n "$KEYCLOAK_NS" port-forward svc/keycloak 18080:80 >/tmp/arctl-kc-pf.$$ 2>&1 & KPF=$!
-disown $KPF 2>/dev/null || true
-for _ in $(seq 1 30); do curl -s -o /dev/null "http://localhost:18080/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration" && break; sleep 1; done
-TOKEN="$(curl -s -X POST "http://localhost:18080/realms/${KEYCLOAK_REALM}/protocol/openid-connect/token" \
-  -H 'Content-Type: application/x-www-form-urlencoded' \
-  -d "grant_type=password&client_id=${KEYCLOAK_CLIENT}&username=${AS_USER}&password=${AS_USER}" \
-  | python3 -c 'import json,sys;print(json.load(sys.stdin).get("access_token",""))')"
-kill $KPF 2>/dev/null || true
-[[ -n "$TOKEN" ]] || die "could not mint ${AS_USER} token (is Keycloak up?)"
-log "claims:"; decode_jwt "$TOKEN" | sed 's/^/    /' >&2 || true
-
-step "2/2  Calling ${AGENT} through kagent A2A as ${AS_USER}"
-kc -n kagent port-forward svc/kagent-controller 8083:8083 >/tmp/arctl-a2a-pf.$$ 2>&1 & CPF=$!
-disown $CPF 2>/dev/null || true
-trap 'kill $CPF 2>/dev/null || true' EXIT
-for _ in $(seq 1 20); do curl -s -o /dev/null "http://localhost:8083/api/a2a/kagent/${AGENT}/.well-known/agent.json" && break; sleep 1; done
-RESP="$(curl -s -X POST "http://localhost:8083/api/a2a/kagent/${AGENT}/" \
-  -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' --max-time 240 \
-  -d "{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"message/send\",\"params\":{\"message\":{\"role\":\"user\",\"parts\":[{\"kind\":\"text\",\"text\":$(printf '%s' "$PROMPT" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')}],\"messageId\":\"ask-$$\"}}}")"
-echo "" >&2
-printf '%s' "$RESP" | python3 -c '
-import sys,json
-try: d=json.load(sys.stdin)
-except Exception: print(sys.stdin.read()[:1500]); sys.exit()
-if "error" in d: print("A2A error:", json.dumps(d["error"])); sys.exit()
+echo "Asking '$AGENT' as $AS_USER (OIDC) ..."
+ISSUER="${KEYCLOAK_ISSUER:-http://keycloak.${KEYCLOAK_NS}.svc.cluster.local/realms/${KEYCLOAK_REALM}}"
+kc -n kagent exec -i "${POD#*/}" -- python3 - "$AGENT" "$AS_USER" "$PROMPT" "$ISSUER" "$KEYCLOAK_CLIENT" <<'PY'
+import sys, json, urllib.request, urllib.parse
+agent, user, prompt, issuer, client = sys.argv[1:6]
+tok = json.load(urllib.request.urlopen(issuer + "/protocol/openid-connect/token",
+      urllib.parse.urlencode({"grant_type":"password","client_id":client,"username":user,"password":user}).encode()))["access_token"]
+body = json.dumps({"jsonrpc":"2.0","id":"1","method":"message/send","params":{"message":{
+      "role":"user","parts":[{"kind":"text","text":prompt}],"messageId":"ask-1"}}}).encode()
+req = urllib.request.Request("http://kagent-controller.kagent.svc.cluster.local:8083/api/a2a/kagent/%s/" % agent,
+      body, {"Authorization":"Bearer "+tok, "Content-Type":"application/json"})
+d = json.load(urllib.request.urlopen(req, timeout=240))
 seen=[]
 def w(o):
-    if isinstance(o,dict):
+    if isinstance(o, dict):
         if o.get("role")=="user": return
-        if o.get("kind")=="text" and isinstance(o.get("text"),str):
+        if o.get("kind")=="text" and isinstance(o.get("text"), str):
             t=o["text"].strip()
             if t and t not in seen: seen.append(t)
         [w(v) for v in o.values()]
-    elif isinstance(o,list): [w(v) for v in o]
-r=d.get("result",d)
-# message/send returns an A2A task; the final reply is in result.artifacts.
-# Fall back to walking everything (minus user messages) for other shapes.
-w(r.get("artifacts") if isinstance(r,dict) and r.get("artifacts") else r)
-print("\n\n".join(seen) if seen else json.dumps(d)[:1500])
-'
-echo "" >&2
+    elif isinstance(o, list):
+        [w(v) for v in o]
+r = d.get("result", d)
+w(r.get("artifacts") if isinstance(r, dict) and r.get("artifacts") else r)
+print("\n" + ("\n\n".join(seen) if seen else "A2A error: " + json.dumps(d.get("error", d))[:500]))
+PY
