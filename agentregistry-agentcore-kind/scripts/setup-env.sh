@@ -14,19 +14,29 @@ ENVFILE="$LAB_ROOT/.env.local"
 # Preload existing values so we can offer them as defaults.
 if [ -f "$ENVFILE" ]; then set -a; . "$ENVFILE"; set +a; fi
 
-# ask VAR "prompt" ["default"] — visible input, keeps current/default on Enter.
+# ask VAR "prompt" ["default"] — if a value already exists, offer to keep it
+# (Enter = keep, no re-typing); otherwise prompt for it.
 ask() {
-  local var="$1" prompt="$2" def="${3:-}" cur ans
+  local var="$1" prompt="$2" def="${3:-}" cur ans yn
   cur="$(eval "printf '%s' \"\${$var:-}\"")"; [ -n "$cur" ] || cur="$def"
-  read -r -p "  $prompt${cur:+ [$cur]}: " ans
+  if [ -n "$cur" ]; then
+    read -r -p "  $prompt — keep \"$cur\"? [Y/n]: " yn
+    case "$yn" in [Nn]*) ;; *) printf -v "$var" '%s' "$cur"; return;; esac
+  fi
+  read -r -p "  enter $prompt: " ans
   printf -v "$var" '%s' "${ans:-$cur}"
 }
 
-# ask_secret VAR "prompt" — hidden input; shows only whether a value is set.
+# ask_secret VAR "prompt" — like ask but hidden; shows only the length, never
+# the value, in the keep prompt.
 ask_secret() {
-  local var="$1" prompt="$2" cur ans
+  local var="$1" prompt="$2" cur ans yn
   cur="$(eval "printf '%s' \"\${$var:-}\"")"
-  read -r -s -p "  $prompt${cur:+ [set — Enter to keep]}: " ans; echo
+  if [ -n "$cur" ]; then
+    read -r -p "  $prompt — keep existing (${#cur} chars)? [Y/n]: " yn
+    case "$yn" in [Nn]*) ;; *) printf -v "$var" '%s' "$cur"; return;; esac
+  fi
+  read -r -s -p "  enter $prompt: " ans; echo
   if [ -n "$ans" ]; then printf -v "$var" '%s' "$ans"; else printf -v "$var" '%s' "$cur"; fi
 }
 

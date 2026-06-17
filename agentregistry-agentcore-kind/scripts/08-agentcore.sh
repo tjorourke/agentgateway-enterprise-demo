@@ -138,6 +138,19 @@ ok "pushed ${ECR_IMAGE}"
 
 # ── 6. update the catalog Agent's source + deploy to AgentCore ───────────────
 step "Pointing the Agent at the ECR image + git source, re-publishing"
+# The registry clones the source. If it's a PRIVATE github repo, inject a fresh
+# gh token into the clone URL so the daemon can authenticate (kept out of logs).
+CLONE_URL="$AGENT_GIT_URL"
+case "$AGENT_GIT_URL" in
+  https://github.com/*)
+    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+      _slug="${AGENT_GIT_URL#https://github.com/}"; _slug="${_slug%.git}"
+      if [[ "$(gh repo view "$_slug" --json isPrivate -q .isPrivate 2>/dev/null)" == "true" ]]; then
+        CLONE_URL="https://x-access-token:$(gh auth token)@github.com/${_slug}.git"
+        log "private repo ${_slug} — using a gh token for the clone"
+      fi
+    fi ;;
+esac
 AGENT_YAML="$(mktemp)"
 cat > "$AGENT_YAML" <<EOF
 apiVersion: ar.dev/v1alpha1
@@ -154,7 +167,7 @@ spec:
   source:
     image: ${ECR_IMAGE}
     repository:
-      url: ${AGENT_GIT_URL}
+      url: ${CLONE_URL}
       branch: ${AGENT_GIT_BRANCH}
       subfolder: ${AGENT_GIT_SUBFOLDER}
 EOF
