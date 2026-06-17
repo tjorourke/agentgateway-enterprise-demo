@@ -49,9 +49,14 @@ On kagent the agent uses your Anthropic key; on AgentCore it uses native Bedrock
 ./scripts/quick.sh agentcore   # add the AWS deployment (needs aws sso login)
 ```
 
-## Teardown
+## Reset / teardown
 
 ```bash
-./scripts/cleanup.sh agentcore   # AWS only
-./scripts/cleanup.sh             # everything (cluster, daemon, registry, AWS)
+./scripts/reset.sh               # back to start: remove the scaffold, deployments,
+                                 #   catalog entries, AWS runtimes/stack/ECR — but
+                                 #   KEEP the platform up so you can re-run the demo
+./scripts/cleanup.sh agentcore   # AWS bits only
+./scripts/cleanup.sh             # full teardown (cluster, daemon, registry, AWS)
 ```
+
+Run `./scripts/reset.sh` between demo runs; `cleanup.sh` when you're done with the cluster.
