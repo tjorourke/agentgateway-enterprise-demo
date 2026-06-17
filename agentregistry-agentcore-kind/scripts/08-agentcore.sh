@@ -159,8 +159,10 @@ spec:
       subfolder: ${AGENT_GIT_SUBFOLDER}
 EOF
 arctl apply -f "$AGENT_YAML"; rm -f "$AGENT_YAML"
-log "git source AgentCore will clone: ${AGENT_GIT_URL}@${AGENT_GIT_BRANCH}/${AGENT_GIT_SUBFOLDER}"
-log "(that branch must be pushed and reachable by AWS before the deploy succeeds)"
+# Mask any embedded token (https://x-access-token:TOKEN@github.com/...) in logs.
+_SAFE_URL="$(printf '%s' "$AGENT_GIT_URL" | sed -E 's#://[^@/]+@#://#')"
+log "git source AgentCore will clone: ${_SAFE_URL}@${AGENT_GIT_BRANCH}/${AGENT_GIT_SUBFOLDER}"
+log "(must be reachable by the registry; a private repo needs a token in the URL)"
 
 step "Deploying '$AGENT_NAME' onto AgentCore"
 DEPLOY_YAML="$(mktemp)"

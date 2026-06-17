@@ -28,12 +28,15 @@ Then open **`demo.ipynb`** and run it top to bottom. It starts with a one-cell *
 
 To also deploy the same agent to AWS (the notebook's second half):
 
-1. In step 1 above, pick your **AWS profile** from the menu (or set `AWS_PROFILE`).
-2. AgentCore clones the agent source from git, so push this branch somewhere AWS can reach (public) and set in `.env.local`:
+1. **AWS profile** — in step 1, pick yours from the menu (or set `AWS_PROFILE`).
+2. **An agent-source repo** — AgentCore builds the agent from source, so it clones a git repo at deploy time. You need one. `setup-env.sh` offers to create it for you with the `gh` CLI (using your GitHub login), or run the helper directly:
    ```sh
-   export AGENT_GIT_URL="https://github.com/<you>/agentgateway-enterprise-demo.git"
-   export AGENT_GIT_BRANCH="<this-branch>"
+   ./scripts/create-agent-repo.sh                 # private repo, gh-derived name, pushes the agent source
+   REPO_VISIBILITY=public ./scripts/create-agent-repo.sh   # public (simplest — no token needed)
    ```
+   It sets `AGENT_GIT_URL`, `AGENT_GIT_BRANCH`, `AGENT_GIT_SUBFOLDER` in `.env.local` for you.
+   - **Private repo:** the registry needs a token to clone it — the notebook/scripts embed your `gh auth token` in the clone URL automatically.
+   - **Public repo:** clones with no token. The agent code is non-sensitive demo code, so public is the simplest choice.
 3. Run the AWS section of the notebook (sign in → grant access → register runtime → deploy → test).
 
 On kagent the agent uses your Anthropic key; on AgentCore it uses native Bedrock Claude via the AWS role (no key).
