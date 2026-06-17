@@ -9,6 +9,7 @@ set -a
 [ -n "${SECRETS_FILE:-}" ] && [ -f "$SECRETS_FILE" ] && . "$SECRETS_FILE"
 set +a
 export PATH="$HOME/.arctl/bin:$PATH"
+export NO_COLOR=1 CLICOLOR=0 TERM=dumb   # clean output (no color / terminal-probe escapes)
 export CLUSTER_NAME="${CLUSTER_NAME:-agentcore-demo}"
 export ARCTL_API_BASE_URL="${ARCTL_API_BASE_URL:-http://localhost:12121}"
 export ARCTL_API_TOKEN="$(curl -s -X POST "$ARCTL_API_BASE_URL/api/autoauth/oauth/token" -H 'Content-Type: application/x-www-form-urlencoded' -d 'grant_type=client_credentials&client_id=admin&scope=openid profile email Groups' | jq -r .access_token)"
